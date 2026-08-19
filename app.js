@@ -1,131 +1,26 @@
-const PRODUCTS = [
-  ["E20S","ACCESSORIES"],["E300C","ACCESSORIES"],["E100C","ACCESSORIES"],
-  ["T100S","TWS"],["T206","TWS"],["T405","TWS"],["OPENFIT R1","TWS"],["EBC-01","TWS"],["OW7","TWS"],["OPEN EAR A1","TWS"],
-  ["SF21 (15W)","SPEAKER"],["S7H","SPEAKER"],["SF7","SPEAKER"],["SV6","SPEAKER"],
-  ["P102S","POWERBANK"],["P13","POWERBANK"],
-  ["META S1 LITE","SMARTWATCH"],["META S2 ULTRA","SMARTWATCH"],["FW6","SMARTWATCH"],["W16","SMARTWATCH"],
-  ["D309BC","CABLE DATA"],["D306M","CABLE DATA"],["D306M REFILL","CABLE DATA"],["D306C","CABLE DATA"],
-  ["C308CC 20W","CHARGER"],["C113M","CHARGER"],["C113C","CHARGER"],
-  ["CF3","COOLER"]
-];
-
-let transactions = JSON.parse(localStorage.getItem("gadgetkita_transactions") || "[]");
-let currentLiveRows = [];
-
-const $ = id => document.getElementById(id);
-const today = () => new Date().toISOString().slice(0,10);
-const fmtDate = d => d ? new Date(d+"T00:00:00").toLocaleDateString("id-ID") : "-";
-const esc = s => String(s ?? "").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
-const save = () => localStorage.setItem("gadgetkita_transactions", JSON.stringify(transactions));
-
-function init(){
-  $("inDate").value=today(); $("outDate").value=today(); $("liveDate").value=today();
-  $("todayText").textContent=new Date().toLocaleDateString("id-ID",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
-  populateProducts();
-  populateCategories();
-  renderAll();
-  bindEvents();
-}
-function populateProducts(){
-  ["inSku","outSku"].forEach(id=>{
-    $(id).innerHTML='<option value="">-- Pilih Varian / SKU --</option>'+
-      PRODUCTS.map(([sku,cat])=>`<option value="${esc(sku)}">${esc(sku)} — ${esc(cat)}</option>`).join("");
-  });
-}
-function populateCategories(){
-  const cats=[...new Set(PRODUCTS.map(p=>p[1]))];
-  $("categoryFilter").innerHTML='<option value="">Semua Kategori</option>'+cats.map(c=>`<option>${esc(c)}</option>`).join("");
-}
-function getStockRows(until=today()){
-  return PRODUCTS.map(([sku,category])=>{
-    const tx=transactions.filter(t=>t.sku===sku && t.date<=until);
-    const stockIn=tx.filter(t=>t.type==="IN").reduce((a,t)=>a+t.qty,0);
-    const stockOut=tx.filter(t=>t.type==="OUT").reduce((a,t)=>a+t.qty,0);
-    return {sku,category,stockIn,stockOut,stock:stockIn-stockOut};
-  });
-}
-function table(headers,rows){
-  if(!rows.length)return '<div class="empty">Tidak ada data.</div>';
-  return `<div class="table-wrap"><table class="data-table"><thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
-}
-function renderDashboard(){
-  const rows=getStockRows();
-  $("totalSku").textContent=PRODUCTS.length;
-  $("totalIn").textContent=transactions.filter(t=>t.type==="IN").reduce((a,t)=>a+t.qty,0);
-  $("totalOut").textContent=transactions.filter(t=>t.type==="OUT").reduce((a,t)=>a+t.qty,0);
-  $("totalLive").textContent=rows.reduce((a,r)=>a+r.stock,0);
-  const sorted=rows.filter(r=>r.stock!==0).sort((a,b)=>b.stock-a.stock).slice(0,12);
-  $("dashboardTable").innerHTML=table(["Kategori","Varian / SKU","Stock In","Stock Out","Live Stock"],
-    sorted.map(r=>`<tr><td>${esc(r.category)}</td><td><b>${esc(r.sku)}</b></td><td>${r.stockIn}</td><td>${r.stockOut}</td><td class="${r.stock>0?'stock-positive':'stock-zero'}">${r.stock}</td></tr>`));
-}
-function renderStockIn(){
-  const q=$("inSearch").value.toLowerCase();
-  const data=transactions.filter(t=>t.type==="IN" && `${t.sku} ${t.note}`.toLowerCase().includes(q)).sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id);
-  $("stockInTable").innerHTML=table(["Tanggal","SKU","Qty","Keterangan","Aksi"],data.map(t=>`<tr><td>${fmtDate(t.date)}</td><td><b>${esc(t.sku)}</b></td><td>${t.qty}</td><td>${esc(t.note||"-")}</td><td><button class="small-btn delete" onclick="deleteTransaction(${t.id})">Hapus</button></td></tr>`));
-}
-function renderStockOut(){
-  const q=$("outSearch").value.toLowerCase();
-  const data=transactions.filter(t=>t.type==="OUT" && `${t.sku} ${t.note}`.toLowerCase().includes(q)).sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id);
-  $("stockOutTable").innerHTML=table(["Tanggal","SKU","Qty","Keterangan","Aksi"],data.map(t=>`<tr><td>${fmtDate(t.date)}</td><td><b>${esc(t.sku)}</b></td><td>${t.qty}</td><td>${esc(t.note||"-")}</td><td><button class="small-btn delete" onclick="deleteTransaction(${t.id})">Hapus</button></td></tr>`));
-}
-function renderLiveStock(){
-  const until=$("liveDate").value||today(), cat=$("categoryFilter").value, q=$("liveSearch").value.toLowerCase();
-  currentLiveRows=getStockRows(until).filter(r=>(!cat||r.category===cat)&&(!q||r.sku.toLowerCase().includes(q)));
-  $("liveResultInfo").textContent=`${currentLiveRows.length} SKU • Stock sampai ${fmtDate(until)}`;
-  $("liveStockTable").innerHTML=table(["Kategori","Varian / SKU","Total In","Total Out","Live Stock"],
-    currentLiveRows.map(r=>`<tr><td>${esc(r.category)}</td><td><b>${esc(r.sku)}</b></td><td>${r.stockIn}</td><td>${r.stockOut}</td><td class="${r.stock>0?'stock-positive':'stock-zero'}">${r.stock}</td></tr>`));
-}
-function renderHistory(){
-  const from=$("historyFrom").value,to=$("historyTo").value,type=$("historyType").value,q=$("historySearch").value.toLowerCase();
-  const data=transactions.filter(t=>(!from||t.date>=from)&&(!to||t.date<=to)&&(!type||t.type===type)&&(!q||t.sku.toLowerCase().includes(q))).sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id);
-  $("historyTable").innerHTML=table(["Tanggal","Jenis","Kategori","SKU","Qty","Keterangan"],data.map(t=>{
-    const p=PRODUCTS.find(x=>x[0]===t.sku);
-    return `<tr><td>${fmtDate(t.date)}</td><td><span class="badge ${t.type==="IN"?"in":"out"}">${t.type==="IN"?"STOCK IN":"STOCK OUT"}</span></td><td>${esc(p?.[1]||"-")}</td><td><b>${esc(t.sku)}</b></td><td>${t.qty}</td><td>${esc(t.note||"-")}</td></tr>`;
-  }));
-}
-function renderAll(){renderDashboard();renderStockIn();renderStockOut();renderLiveStock();renderHistory();}
-function deleteTransaction(id){
-  if(!confirm("Hapus transaksi ini?"))return;
-  transactions=transactions.filter(t=>t.id!==id); save(); renderAll();
-}
-function showSection(id){
-  document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
-  document.querySelectorAll(".nav-btn[data-section]").forEach(b=>b.classList.remove("active"));
-  $(id).classList.add("active");
-  const btn=document.querySelector(`.nav-btn[data-section="${id}"]`); if(btn)btn.classList.add("active");
-  $("pageTitle").textContent={dashboard:"Dashboard",stockIn:"Stock In",stockOut:"Stock Out",liveStock:"Live Stock",history:"Riwayat Transaksi"}[id];
-}
-function exportLiveCSV(){
-  const lines=[["Kategori","SKU","Total In","Total Out","Live Stock"],...currentLiveRows.map(r=>[r.category,r.sku,r.stockIn,r.stockOut,r.stock])];
-  const csv=lines.map(row=>row.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
-  const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`live-stock-${$("liveDate").value||today()}.csv`;a.click();URL.revokeObjectURL(a.href);
-}
-function bindEvents(){
-  $("loginForm").addEventListener("submit",e=>{
-    e.preventDefault();
-    if($("username").value==="Gadgetkita" && $("password").value==="Gasspoll"){
-      $("loginPage").classList.add("hidden");$("appPage").classList.remove("hidden");sessionStorage.setItem("gadgetkita_login","1");
-    }else $("loginError").textContent="Username atau password salah.";
-  });
-  $("logoutBtn").addEventListener("click",()=>{sessionStorage.removeItem("gadgetkita_login");location.reload()});
-  document.querySelectorAll(".nav-btn[data-section]").forEach(b=>b.addEventListener("click",()=>showSection(b.dataset.section)));
-  $("stockInForm").addEventListener("submit",e=>{
-    e.preventDefault(); addTransaction("IN",$("inDate").value,$("inSku").value,$("inQty").value,$("inNote").value,e.target);
-  });
-  $("stockOutForm").addEventListener("submit",e=>{
-    e.preventDefault();
-    const sku=$("outSku").value, qty=Number($("outQty").value), date=$("outDate").value;
-    const available=getStockRows(date).find(r=>r.sku===sku)?.stock||0;
-    if(qty>available){alert(`Stock tidak cukup. Live stock ${sku} pada ${fmtDate(date)} = ${available}.`);return;}
-    addTransaction("OUT",date,sku,qty,$("outNote").value,e.target);
-  });
-  ["inSearch","outSearch","liveDate","categoryFilter","liveSearch","historyFrom","historyTo","historyType","historySearch"].forEach(id=>$(id).addEventListener("input",renderAll));
-}
-function addTransaction(type,date,sku,qty,note,form){
-  if(!date||!sku||Number(qty)<=0)return;
-  transactions.push({id:Date.now()+Math.floor(Math.random()*1000),type,date,sku,qty:Number(qty),note:note.trim()});
-  save();form.reset();$("inDate").value=today();$("outDate").value=today();renderAll();alert(`${type==="IN"?"Stock In":"Stock Out"} berhasil disimpan.`);
-}
-if(sessionStorage.getItem("gadgetkita_login")==="1"){$("loginPage").classList.add("hidden");$("appPage").classList.remove("hidden")}
-document.addEventListener("DOMContentLoaded",init);
+const PRODUCTS=[["Wired Earphone","E20S"],["Wired Earphone","E300C"],["Wired Earphone","E100C"],["TWS","T100S"],["TWS","T206"],["TWS","T405"],["TWS","OPENFIT R1"],["TWS","EBC-01"],["TWS","OW7"],["TWS","OPEN EAR A1"],["Speaker","SF21 (15W)"],["Speaker","S7H"],["Speaker","SF7"],["Speaker","SV6"],["Powerbank","P102S"],["Powerbank","P13"],["Smartwatch","META S1 LITE"],["Smartwatch","META S2 ULTRA"],["Smartwatch","FW6"],["Smartwatch","W16"],["Cable Data","D309BC"],["Cable Data","D306M"],["Cable Data","D306M REFILL"],["Cable Data","D306C"],["Charger","C308CC 20W"],["Charger","C113M"],["Charger","C113C"],["Cooler","CF3"]];
+const COLORS=["PUTIH","HITAM","PINK","BEIGE","BIRU","MIX"],KEY_USER="Gadgetkita",KEY_PASS="Gasspoll";
+const supabaseClient=window.supabase.createClient("https://sqmctsakwkmizhfvzpih.supabase.co","sb_publishable_KpZj7PCKI4-9h38Bl3AydA_6uRyahvb");let stockIn=[],stockOut=[],realtimeChannel;
+const $=id=>document.getElementById(id),today=()=>new Date().toISOString().slice(0,10),money=n=>"Rp "+Number(n||0).toLocaleString("id-ID"),makeSku=(p,c)=>`${p}-${c}`.replaceAll(" ","-").replace(/[()]/g,"");
+const productMap=()=>Object.fromEntries(PRODUCTS.map(p=>[p[1],{category:p[0]}]));
+function productOptions(id){$(id).innerHTML=PRODUCTS.map(p=>`<option value="${p[1]}">${p[1]} — ${p[0]}</option>`).join("")}function colorOptions(id,all=false){$(id).innerHTML=(all?'<option value="">Semua warna</option>':"")+COLORS.map(c=>`<option>${c}</option>`).join("")}
+async function loadData(){const[{data:ins,error:e1},{data:outs,error:e2}]=await Promise.all([supabaseClient.from("stock_in").select("*").order("date",{ascending:false}).order("id",{ascending:false}),supabaseClient.from("stock_out").select("*").order("date",{ascending:false}).order("id",{ascending:false})]);if(e1||e2){alert("Gagal mengambil data online: "+(e1?.message||e2?.message));return}stockIn=(ins||[]).map(x=>({...x,id:Number(x.id),qty:Number(x.qty)}));stockOut=(outs||[]).map(x=>({...x,id:Number(x.id),qty:Number(x.qty),price:Number(x.price||0),total:Number(x.total||0)}));renderAll()}
+function subscribeRealtime(){if(realtimeChannel)supabaseClient.removeChannel(realtimeChannel);realtimeChannel=supabaseClient.channel("gadgetkita-stock-realtime").on("postgres_changes",{event:"*",schema:"public",table:"stock_in"},loadData).on("postgres_changes",{event:"*",schema:"public",table:"stock_out"},loadData).subscribe()}
+async function init(){$("inDate").value=today();$("outDate").value=today();$("liveDate").value=today();$("reportFrom").value=today();$("reportTo").value=today();$("todayLabel").textContent=new Date().toLocaleDateString("id-ID",{weekday:"long",day:"2-digit",month:"short",year:"numeric"});productOptions("inProduct");productOptions("outProduct");colorOptions("inColor");colorOptions("outColor");colorOptions("liveColor",true);colorOptions("reportColor",true);$("liveCategory").innerHTML='<option value="">Semua kategori</option>'+[...new Set(PRODUCTS.map(p=>p[0]))].map(c=>`<option>${c}</option>`).join("");bind();await loadData();subscribeRealtime()}
+function bind(){$("loginForm").addEventListener("submit",e=>{e.preventDefault();if($("username").value===KEY_USER&&$("password").value===KEY_PASS){$("loginPage").classList.add("hidden");$("appPage").classList.remove("hidden")}else $("loginError").classList.remove("hidden")});$("logoutBtn").onclick=()=>location.reload();$("resetDataBtn").onclick=async()=>{if(!confirm("Hapus SEMUA data online untuk semua device?"))return;const[a,b]=await Promise.all([supabaseClient.from("stock_in").delete().not("id","is",null),supabaseClient.from("stock_out").delete().not("id","is",null)]);if(a.error||b.error)alert(a.error?.message||b.error?.message);else await loadData()};document.querySelectorAll(".nav-item[data-page]").forEach(b=>b.onclick=()=>showPage(b.dataset.page));
+$("stockInForm").onsubmit=async e=>{e.preventDefault();const p=$("inProduct").value,c=$("inColor").value,q=+$ ("inQty").value,{error}=await supabaseClient.from("stock_in").insert({date:$("inDate").value,product:p,color:c,qty:q,note:$("inNote").value,sku:makeSku(p,c)});if(error)return alert(error.message);e.target.reset();$("inDate").value=today();await loadData()};
+$("stockOutForm").onsubmit=async e=>{e.preventDefault();const p=$("outProduct").value,c=$("outColor").value,q=+$ ("outQty").value,date=$("outDate").value||today(),available=getStock(p,c,date),price=Number($("outPrice").value||0);if(q>available)return alert(`Stock tidak cukup. Tersedia ${available} unit.`);const{error}=await supabaseClient.from("stock_out").insert({date,product:p,color:c,qty:q,price,total:q*price,note:$("outNote").value,sku:makeSku(p,c)});if(error)return alert(error.message);e.target.reset();$("outDate").value=today();$("outTotal").value="Rp 0";await loadData()};
+$("outProduct").onchange=updateSalePrice;$("outColor").onchange=updateSalePrice;$("outQty").oninput=updateSalePrice;$("outPrice").oninput=updateSalePrice;["inSearch","outSearch","outDateFilter","liveDate","liveCategory","liveColor","liveSearch","reportFrom","reportTo","reportSearch","reportColor","productSearch"].forEach(id=>$(id).addEventListener("input",renderAll));$("exportCsvBtn").onclick=exportCSV}
+function showPage(page){document.querySelectorAll(".page").forEach(p=>p.classList.remove("active-page"));$(page).classList.add("active-page");document.querySelectorAll(".nav-item[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===page));$("pageTitle").textContent=({dashboard:"Dashboard",stockIn:"Stock In",stockOut:"Stock Out / Penjualan",liveStock:"Live Stock",reports:"Laporan",products:"Master Produk"})[page];renderAll()}
+function getStock(p,c,d){return stockIn.filter(x=>x.product===p&&x.color===c&&x.date<=d).reduce((a,x)=>a+x.qty,0)-stockOut.filter(x=>x.product===p&&x.color===c&&x.date<=d).reduce((a,x)=>a+x.qty,0)}
+function updateSalePrice(){const p=$("outProduct").value,c=$("outColor").value,q=+$ ("outQty").value||0,price=Number($("outPrice").value||0),av=getStock(p,c,$("outDate").value||today());$("outTotal").value=money(q*price);$("availableStock").textContent=`Stock tersedia: ${av} unit`}
+function renderAll(){renderDashboard();renderStockIn();renderStockOut();renderLiveStock();renderReports();renderProducts();updateSalePrice()}
+function renderDashboard(){const stock=PRODUCTS.reduce((a,p)=>a+COLORS.reduce((b,c)=>b+Math.max(0,getStock(p[1],c,today())),0),0),o=stockOut.filter(x=>x.date===today()),q=o.reduce((a,x)=>a+x.qty,0),r=o.reduce((a,x)=>a+x.total,0);$("statSku").textContent=PRODUCTS.length*COLORS.length;$("statStock").textContent=stock;$("statSales").textContent=q;$("statRevenue").textContent=money(r);let days=[];for(let i=6;i>=0;i--){let d=new Date();d.setDate(d.getDate()-i);let ds=d.toISOString().slice(0,10),n=stockOut.filter(x=>x.date===ds).reduce((a,x)=>a+x.qty,0);days.push([ds,n])}let max=Math.max(1,...days.map(x=>x[1]));$("salesChart").innerHTML=days.map(([d,n])=>`<div class="bar-wrap"><span class="bar-value">${n}</span><div class="bar" style="height:${Math.max(3,n/max*145)}px"></div><span>${d.slice(5)}</span></div>`).join("");let cat={};o.forEach(x=>{const m=productMap()[x.product];if(m)cat[m.category]=(cat[m.category]||0)+x.qty});$("categorySummary").innerHTML=Object.entries(cat).map(([c,n])=>`<div class="category-row"><span>${c}</span><b>${n} unit</b></div>`).join("")||'<div class="muted">Belum ada penjualan hari ini.</div>'}
+function renderStockIn(){let s=($("inSearch").value||"").toLowerCase(),rows=stockIn.filter(x=>(x.product+" "+x.sku).toLowerCase().includes(s));$("stockInTable").innerHTML=rows.map(x=>`<tr><td>${x.date}</td><td>${x.product}</td><td>${x.color}</td><td>${x.sku}</td><td><b>${x.qty}</b></td><td>${x.note||"-"}</td></tr>`).join("")||emptyRow(6)}
+function renderStockOut(){let s=($("outSearch").value||"").toLowerCase(),d=$("outDateFilter").value,rows=stockOut.filter(x=>(!d||x.date===d)&&(x.product+" "+x.sku).toLowerCase().includes(s));$("stockOutTable").innerHTML=rows.map(x=>`<tr><td>${x.date}</td><td>${x.product}</td><td>${x.color}</td><td>${x.sku}</td><td><b>${x.qty}</b></td><td>${money(x.total)}</td><td>${x.note||"-"}</td></tr>`).join("")||emptyRow(7)}
+function renderLiveStock(){let d=$("liveDate").value||today(),cat=$("liveCategory").value,col=$("liveColor").value,s=($("liveSearch").value||"").toLowerCase(),rows=[];PRODUCTS.forEach(p=>COLORS.forEach(c=>{let id=makeSku(p[1],c),q=getStock(p[1],c,d);if((!cat||p[0]===cat)&&(!col||c===col)&&(!s||(p[1]+" "+id).toLowerCase().includes(s)))rows.push({product:p[1],color:c,sku:id,in:stockIn.filter(x=>x.product===p[1]&&x.color===c&&x.date<=d).reduce((a,x)=>a+x.qty,0),out:stockOut.filter(x=>x.product===p[1]&&x.color===c&&x.date<=d).reduce((a,x)=>a+x.qty,0),q})}));$("liveStockTable").innerHTML=rows.map(x=>`<tr><td>${x.product}</td><td>${x.color}</td><td>${x.sku}</td><td>${x.in}</td><td>${x.out}</td><td><b>${x.q}</b></td><td><span class="status ${x.q<=0?"empty":x.q<=5?"low":"ok"}">${x.q<=0?"HABIS":x.q<=5?"LOW":"AMAN"}</span></td></tr>`).join("")||emptyRow(7)}
+function reportRows(){let f=$("reportFrom").value,t=$("reportTo").value,s=($("reportSearch").value||"").toLowerCase(),c=$("reportColor").value;return stockOut.filter(x=>(!f||x.date>=f)&&(!t||x.date<=t)&&(!c||x.color===c)&&(!s||(x.product+" "+x.sku).toLowerCase().includes(s)))}
+function renderReports(){let rows=reportRows(),q=rows.reduce((a,x)=>a+x.qty,0),r=rows.reduce((a,x)=>a+x.total,0);$("reportQty").textContent=q;$("reportRevenue").textContent=money(r);$("reportDays").textContent=new Set(rows.map(x=>x.date)).size;let daily={};rows.forEach(x=>{daily[x.date]??={qty:0,revenue:0};daily[x.date].qty+=x.qty;daily[x.date].revenue+=x.total});$("dailyReportTable").innerHTML=Object.entries(daily).sort().reverse().map(([d,v])=>`<tr><td>${d}</td><td>${v.qty}</td><td>${money(v.revenue)}</td></tr>`).join("")||emptyRow(3);$("reportDetailTable").innerHTML=rows.map(x=>`<tr><td>${x.date}</td><td>${x.product}</td><td>${x.color}</td><td>${x.sku}</td><td>${x.qty}</td><td>${money(x.total)}</td></tr>`).join("")||emptyRow(6)}
+function renderProducts(){let s=($("productSearch").value||"").toLowerCase();$("productsTable").innerHTML=PRODUCTS.filter(p=>(p[0]+" "+p[1]).toLowerCase().includes(s)).map(p=>`<tr><td>${p[0]}</td><td><b>${p[1]}</b></td><td>${p[1].replaceAll(" ","-")}</td></tr>`).join("");$("colorChips").innerHTML=COLORS.map(c=>`<span class="chip">${c}</span>`).join("")}
+function emptyRow(n){return `<tr><td colspan="${n}" class="muted">Belum ada data.</td></tr>`}function exportCSV(){let rows=reportRows(),csv=["Tanggal,Varian,Warna,SKU,Qty,Total,Catatan",...rows.map(x=>[x.date,x.product,x.color,x.sku,x.qty,x.total,x.note||""].map(v=>`"${String(v).replaceAll('"','""')}"`).join(","))].join("\n"),blob=new Blob([csv],{type:"text/csv;charset=utf-8"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`gadgetkita-penjualan-${today()}.csv`;a.click();URL.revokeObjectURL(a.href)}
+init();
