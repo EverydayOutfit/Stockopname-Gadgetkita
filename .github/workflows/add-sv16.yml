@@ -1,0 +1,35 @@
+name: Add SV16 to Speaker Master Data
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  add-sv16:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add SV16 if missing
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app.js')
+          s = p.read_text(encoding='utf-8')
+          old = '["Speaker","SV6"]'
+          new = '["Speaker","SV6"],["Speaker","SV16"]'
+          if '["Speaker","SV16"]' not in s:
+              if old not in s:
+                  raise SystemExit('Speaker SV6 marker not found')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Commit SV16
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js
+          git diff --cached --quiet || git commit -m 'Add SV16 to Speaker master data'
+          git push
